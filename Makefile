@@ -1,20 +1,37 @@
-# Define the compiler and flags
+#makefile
 CC = gcc
-CFLAGS = -Wall -g
+CFLAGS = -std=c11 -g2 -ggdb -pedantic -W -Wall -Wextra 
 
-# Define the target executable
-TARGET = hello
+.SUFFIXES:   
+.SUFFIXES: .c .o
 
-# List of source files
-SRCS = main.c
+DEBUG   = ./build/linux/debug
+RELEASE = ./build/linux/release
+OUT_DIR = $(DEBUG)
+vpath %.c src
+vpath %.h src
+vpath %.o build/linux/debug
 
-# Default target
-all: $(TARGET)
+ifeq ($(MODE), release)
+  CFLAGS = -std=c11 -pedantic -W -Wall -Wextra -Werror
+  OUT_DIR = $(RELEASE)
+  vpath %.o build/linux/release
+endif
 
-# Rule to build the target executable
-$(TARGET): $(SRCS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS)
 
-# Rule to clean up build artifacts
+objects =  $(OUT_DIR)/main.o $(OUT_DIR)/lib.o 
+#objects =  main.o lib.o 
+
+prog = $(OUT_DIR)/test
+
+all: $(prog) 
+
+$(prog) : $(objects) 
+	$(CC) $(CFLAGS) $(objects) -o $@
+
+$(OUT_DIR)/%.o : %.c
+	$(CC) -c $(CFLAGS) $^ -o $@
+
+.PHONY: clean 
 clean:
-	rm -f $(TARGET)
+	@rm -rf $(DEBUG)/* $(RELEASE)/* test
