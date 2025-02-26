@@ -1,37 +1,44 @@
-#makefile
+# Compiler and flags
 CC = gcc
 CFLAGS = -std=c11 -g2 -ggdb -pedantic -W -Wall -Wextra 
 
-.SUFFIXES:   
-.SUFFIXES: .c .o
+# Directories
+SRC_DIR = src
+BUILD_DIR = build/linux
+DEBUG_DIR = $(BUILD_DIR)/debug
+RELEASE_DIR = $(BUILD_DIR)/release
 
-DEBUG   = ./build/linux/debug
-RELEASE = ./build/linux/release
-OUT_DIR = $(DEBUG)
-vpath %.c src
-vpath %.h src
-vpath %.o build/linux/debug
+# Output directory
+OUT_DIR = $(DEBUG_DIR)
 
 ifeq ($(MODE), release)
   CFLAGS = -std=c11 -pedantic -W -Wall -Wextra -Werror
-  OUT_DIR = $(RELEASE)
-  vpath %.o build/linux/release
+  OUT_DIR = $(RELEASE_DIR)
 endif
 
+# Source and object files
+SRC = $(wildcard $(SRC_DIR)/*.c)
+OBJ = $(patsubst $(SRC_DIR)/%.c,$(OUT_DIR)/%.o,$(SRC))
 
-objects =  $(OUT_DIR)/main.o $(OUT_DIR)/lib.o 
-#objects =  main.o lib.o 
+# Program name
+PROG = $(OUT_DIR)/test
 
-prog = $(OUT_DIR)/test
+# Default target
+all: $(OUT_DIR) $(PROG)
 
-all: $(prog) 
+# Create output directory
+$(OUT_DIR):
+	mkdir -p $(OUT_DIR)
 
-$(prog) : $(objects) 
-	$(CC) $(CFLAGS) $(objects) -o $@
+# Link object files to create the executable
+$(PROG): $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o $@
 
-$(OUT_DIR)/%.o : %.c
-	$(CC) -c $(CFLAGS) $^ -o $@
+# Compile source files into object files
+$(OUT_DIR)/%.o: $(SRC_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONY: clean 
 clean:
-	@rm -rf $(DEBUG)/* $(RELEASE)/* test
+	@rm -rf $(BUILD_DIR)/* test
+
