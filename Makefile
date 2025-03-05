@@ -4,7 +4,7 @@ CFLAGS = -std=c11 -g2 -ggdb -pedantic -W -Wall -Wextra
 
 # Directories
 SRC_DIR = src
-BUILD_DIR = build/linux
+BUILD_DIR = build
 DEBUG_DIR = $(BUILD_DIR)/debug
 RELEASE_DIR = $(BUILD_DIR)/release
 
@@ -21,7 +21,7 @@ SRC = $(wildcard $(SRC_DIR)/*.c)
 OBJ = $(patsubst $(SRC_DIR)/%.c,$(OUT_DIR)/%.o,$(SRC))
 
 # Program name
-PROG = $(OUT_DIR)/test
+PROG = $(OUT_DIR)/prog
 
 # Default target
 all: $(OUT_DIR) $(PROG)
