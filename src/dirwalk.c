@@ -120,8 +120,8 @@ static int process_entry(const char *fpath, const struct stat *sb, int typeflag,
 
     if (print) {
         // Call the output function (either puts or add_to_list)
-        if (output_function(fpath) != 0) {
-            // Handle error but continue traversal
+        int result = output_function(fpath);
+        if (result == EOF) {  // Only treat EOF as an error
             fprintf(stderr, "Error processing '%s'\n", fpath);
         }
     }

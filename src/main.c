@@ -13,7 +13,7 @@
 
 int main(int argc, char *argv[]) {
     // Initialize all flags by default (links, directories, files, sorting)
-    int flags = FLAG_LINKS | FLAG_DIRS | FLAG_FILES | FLAG_SORT;
+    int flags = FLAG_LINKS | FLAG_DIRS | FLAG_FILES;
     char *start_dir = ".";         // Default starting directory
     int dir_specified = 0;         // Indicates if directory argument has been provided
     int type_flags_provided = 0;   // Tracks if any type options (-l, -d, -f) have been specified
