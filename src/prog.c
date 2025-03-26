@@ -1,4 +1,4 @@
-// main.c
+// test.c
 // Description: This program performs a directory traversal, listing files, directories, and symbolic links based on specified options.
 //              It supports options to filter the output to include only files, directories, or links, and an option to sort the output.
 //              The program uses the dirwalk function from dirwalk.c to perform the traversal and process each entry.
