@@ -21,7 +21,7 @@ SRC = $(wildcard $(SRC_DIR)/*.c)
 OBJ = $(patsubst $(SRC_DIR)/%.c,$(OUT_DIR)/%.o,$(SRC))
 
 # Program name
-PROG = $(OUT_DIR)/prog
+PROG = $(OUT_DIR)/dirwalk
 
 # Default target
 all: $(OUT_DIR) $(PROG)
