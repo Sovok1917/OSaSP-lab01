@@ -1,13 +1,20 @@
-/**
- * @file dirwalk.c
- * @brief Scans a directory tree and lists files, directories, or symbolic links.
+/*
+ * dirwalk.c
  *
- * This program recursively scans a specified directory (or the current directory
- * if none is provided) and prints the paths of filesystem entries to standard
- * output, similar to the 'find' utility. Options allow filtering by type
- * (file, directory, symbolic link) and sorting the output. Adheres to POSIX
- * standards and specific coding style requirements. Handles unreadable
- * directories similarly to 'find'.
+ * Description:
+ * This program scans a directory tree, starting from a specified path
+ * (or the current directory by default), and lists filesystem entries
+ * such as files, directories, and symbolic links. It mimics some basic
+ * functionality of the 'find' command-line utility.
+ *
+ * Features:
+ * - Recursive directory traversal using POSIX nftw().
+ * - Optional filtering to show only files (-f), directories (-d), or
+ *   symbolic links (-l). If no filter is specified, all types are shown.
+ * - Optional sorting (-s) of the output paths alphabetically based on the
+ *   current locale settings (LC_COLLATE).
+ * - Handles unreadable directories gracefully, similar to 'find'.
+ * - Adheres to POSIX standards (_XOPEN_SOURCE 700).
  */
 
 #define _XOPEN_SOURCE 700 // Enable POSIX features including nftw
@@ -15,10 +22,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h> // For getopt
-#include <getopt.h> // For getopt
+#include <unistd.h>
+#include <getopt.h>
 #include <sys/stat.h>
-#include <ftw.h>    // For nftw
+#include <ftw.h>
 #include <errno.h>
 #include <locale.h> // For strcoll, setlocale
 #include <stdbool.h> // For bool type (C99+)
@@ -29,8 +36,9 @@
 
 // --- Type Definitions ---
 
-/**
- * @brief Structure to hold the list of paths found during traversal when sorting.
+/*
+ * Structure to hold the list of paths found during traversal,
+ * used specifically when sorting is enabled.
  */
 typedef struct {
     char **paths;    // Dynamically allocated array of path strings
@@ -38,8 +46,8 @@ typedef struct {
     size_t capacity; // Allocated capacity of the paths array
 } path_list_s;
 
-/**
- * @brief Structure to hold program options.
+/*
+ * Structure to hold the command-line options parsed by the program.
  */
 typedef struct {
     bool show_links;     // True if -l is specified
@@ -51,8 +59,9 @@ typedef struct {
 } options_s;
 
 // --- File-Scope Static Variable ---
-// Used to pass options to the nftw callback function, as standard POSIX nftw
-// doesn't support a user data passthrough argument.
+// Used to pass options to the nftw callback function (process_entry).
+// This is a common workaround as standard POSIX nftw doesn't provide a
+// user-defined data pointer argument for the callback.
 static options_s *g_callback_options = NULL;
 
 // --- Function Prototypes ---
@@ -65,31 +74,34 @@ static void print_usage(const char *prog_name);
 
 // --- Main Function ---
 
-/**
- * @brief Main entry point of the dirwalk program.
- *
- * Parses command-line arguments, sets up options, and initiates the
- * directory traversal using nftw. Handles printing or sorting/printing
- * the results based on options.
- *
- * @param argc Argument count.
- * @param argv Argument vector.
- * @return EXIT_SUCCESS on success, EXIT_FAILURE on error.
+/*
+ * Purpose:
+ *   Main entry point of the dirwalk program. It parses command-line arguments,
+ *   sets up the options structure, initiates the directory traversal using nftw(),
+ *   and handles the output (either printing directly or collecting, sorting,
+ *   and then printing).
+ * Receives:
+ *   argc: The number of command-line arguments.
+ *   argv: An array of command-line argument strings.
+ * Returns:
+ *   EXIT_SUCCESS (0) if the program executes successfully.
+ *   EXIT_FAILURE (1) if an error occurs (e.g., invalid options, memory
+ *   allocation failure, directory traversal error).
  */
 int main(int argc, char *argv[]) {
-    options_s opts = {0}; // Initialize all options to false/NULL
-    char *start_dir = "."; // Default starting directory
+    options_s opts = {0};
+    char *start_dir = ".";
     int opt;
 
-    // Set locale for sorting according to environment
+    // Set locale for sorting based on environment variables.
     if (setlocale(LC_COLLATE, "") == NULL) {
         fprintf(stderr, "Warning: Failed to set locale, sorting may be incorrect.\n");
-        // Continue execution even if locale setting fails
+        // Continue even if locale setting fails.
     }
 
-    // --- Argument Parsing ---
-    optind = 1; // Reset getopt index
+    optind = 1; // Ensure getopt starts from the first argument.
 
+    // Parse command-line options.
     while ((opt = getopt(argc, argv, "ldfs")) != -1) {
         switch (opt) {
             case 'l':
@@ -107,20 +119,20 @@ int main(int argc, char *argv[]) {
             case 's':
                 opts.sort_output = true;
                 break;
-            case '?': // Unknown option or missing argument for an option
+            case '?': // Handle unknown options or missing arguments.
                 fprintf(stderr, "Error: Invalid option or missing argument.\n");
                 print_usage(argv[0]);
                 return EXIT_FAILURE;
             default:
-                // Should not happen with the given optstring
+                // This case should ideally not be reached with the defined optstring.
                 fprintf(stderr, "Internal error: unexpected getopt result '%c'\n", opt);
-                abort(); // Use abort for unexpected internal errors
+                abort();
         }
     }
 
-    // --- Determine Starting Directory ---
+    // Determine the starting directory from non-option arguments.
     if (optind < argc) {
-        // Check if more than one non-option argument is provided
+        // Check for too many non-option arguments.
         if (optind + 1 < argc) {
             fprintf(stderr, "Error: Too many directory arguments provided.\n");
             print_usage(argv[0]);
@@ -128,86 +140,83 @@ int main(int argc, char *argv[]) {
         }
         start_dir = argv[optind];
     } else {
-        // No directory argument provided, use default "."
-        // If argc == 1 (only program name), print usage hint
+        // No directory specified, use default ".".
+        // If only the program name was given, show usage.
         if (argc == 1) {
             print_usage(argv[0]);
-            return EXIT_SUCCESS; // Exit successfully after showing help
+            return EXIT_SUCCESS; // Exit normally after showing help.
         }
-        // If options were given but no dir, still use "."
+        // If options were given but no directory, still use ".".
     }
 
 
-    // If no filter options were given, show all types
+    // If no specific type filters were activated, default to showing all types.
     if (!opts.filter_active) {
         opts.show_links = true;
         opts.show_dirs = true;
         opts.show_files = true;
     }
 
-    // --- Perform Directory Walk ---
-    path_list_s results_list = {0}; // Initialize list for sorting
+    // Prepare for directory walk.
+    path_list_s results_list = {0}; // Initialize list structure for sorting.
 
     if (opts.sort_output) {
-        // Initialize the list
-        results_list.capacity = 100; // Sensible initial capacity
+        // Allocate initial memory for the path list if sorting is enabled.
+        results_list.capacity = 100; // Sensible initial capacity.
         results_list.paths = malloc(results_list.capacity * sizeof(char *));
         if (results_list.paths == NULL) {
             perror("Error allocating initial path list");
             return EXIT_FAILURE;
         }
         results_list.count = 0;
-        opts.list = &results_list; // Point options struct to the list
+        opts.list = &results_list; // Link the list to the options structure.
     } else {
-        opts.list = NULL; // Not sorting, list not needed in options struct
+        opts.list = NULL; // No list needed if not sorting.
     }
 
-    // Assign the address of local opts struct to the global pointer for callback access
+    // Make options accessible to the callback function via the global pointer.
     g_callback_options = &opts;
 
-    // Use FTW_PHYS to not follow symbolic links by default (lstat behavior)
+    // Use FTW_PHYS to make nftw behave like lstat (doesn't follow symlinks during traversal).
     int flags = FTW_PHYS;
 
-    // Call nftw with the correct 4 arguments for POSIX standard
+    // Perform the directory traversal.
     if (nftw(start_dir, process_entry, MAX_FTW_FD, flags) == -1) {
-        // nftw sets errno, check if it's just a non-existent start directory or permission issue
         fprintf(stderr, "Error walking directory '%s': %s\n", start_dir, strerror(errno));
-        // Cleanup potentially allocated sort list even on failure
+        // Ensure cleanup even if nftw fails.
         if (opts.sort_output) {
             free_path_list(&results_list);
         }
-        g_callback_options = NULL; // Reset global pointer
+        g_callback_options = NULL; // Reset global pointer.
         return EXIT_FAILURE;
     }
 
-    // Reset global pointer after nftw finishes or fails. Good practice.
+    // Reset global pointer after nftw finishes or fails.
     g_callback_options = NULL;
 
-    // --- Output Results ---
+    // Process and output the results.
     if (opts.sort_output) {
-        // Sort the collected paths using locale-aware comparison
+        // Sort the collected paths using locale-aware comparison.
         qsort(results_list.paths, results_list.count, sizeof(char *), compare_paths);
 
-        // Print the sorted paths
+        // Print the sorted paths.
         for (size_t i = 0; i < results_list.count; ++i) {
-            // Check for potential write errors during printing
             if (printf("%s\n", results_list.paths[i]) < 0) {
                 perror("Error writing to stdout");
-                // Cleanup is important even if printing fails partially
-                free_path_list(&results_list);
-                return EXIT_FAILURE; // Exit on write error
+                free_path_list(&results_list); // Clean up before exiting on error.
+                return EXIT_FAILURE;
             }
         }
 
-        // Free allocated memory for the list
+        // Free the memory used by the path list.
         free_path_list(&results_list);
     }
-    // If not sorting, output happened directly within process_entry
+    // If not sorting, output happened directly within process_entry.
 
-    // Ensure stdout is flushed before exiting
+    // Ensure all buffered output is written.
     if (fflush(stdout) == EOF) {
         perror("Error flushing stdout");
-        // Decide if this is a fatal error. Often ignored, but good to check.
+        // Optional: Consider if this should be a fatal error.
     }
 
     return EXIT_SUCCESS;
@@ -215,219 +224,223 @@ int main(int argc, char *argv[]) {
 
 // --- Helper Functions ---
 
-/**
- * @brief Callback function for nftw.
- *
- * This function is called by nftw for each entry found in the directory tree.
- * It checks if the entry type matches the requested types based on the options
- * accessed via the file-scope 'g_callback_options' pointer. Handles special
- * directory types like FTW_DNR to better match 'find' behavior. If sorting is
- * enabled, it adds the path to a list; otherwise, it prints the path directly.
- * Uses the stat buffer to precisely identify regular files when -f is active.
- * When no type filter is active, it lists all encountered entry types similar to find.
- *
- * @param fpath The full path to the current filesystem entry.
- * @param sb Pointer to the stat buffer (from lstat due to FTW_PHYS). Used for precise type checking.
- * @param typeflag An integer indicating the type of the entry (e.g., FTW_F, FTW_D, FTW_SL, FTW_DNR).
- * @param ftwbuf Pointer to the FTW structure containing depth information. Unused here.
- * @return 0 to continue the walk, non-zero to stop. Returns -1 on allocation or print error.
+/*
+ * Purpose:
+ *   Callback function invoked by nftw() for each filesystem entry encountered
+ *   during the directory traversal. It determines if the entry matches the
+ *   filtering criteria specified by the command-line options (accessed via
+ *   the global g_callback_options). If sorting is disabled, it prints the
+ *   path directly. If sorting is enabled, it adds the path to the list
+ *   stored in the options structure. It handles different file types reported
+ *   by nftw (FTW_F, FTW_D, FTW_SL, FTW_DNR, etc.) and uses the stat buffer
+ *   to specifically identify regular files when the -f option is active.
+ *   It ignores entries flagged as FTW_NS (stat failed) or FTW_DP (directory
+ *   visited post-children - not needed here).
+ * Receives:
+ *   fpath:    A pointer to a string containing the full path of the current entry.
+ *   sb:       A pointer to a 'struct stat' containing information about the entry
+ *             (obtained via lstat because FTW_PHYS is used).
+ *   typeflag: An integer indicating the type of the entry (e.g., FTW_F, FTW_D, FTW_SL).
+ *   ftwbuf:   A pointer to an FTW structure containing depth level and base offset;
+ *             this parameter is not used in this function.
+ * Returns:
+ *   0 to instruct nftw() to continue the traversal.
+ *   -1 to instruct nftw() to stop the traversal immediately (e.g., due to an
+ *      output error or memory allocation failure).
  */
 static int process_entry(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
-    (void)ftwbuf; // Mark unused
+    (void)ftwbuf; // Indicate ftwbuf is intentionally unused.
 
     options_s *opts = g_callback_options;
     if (opts == NULL) {
+        // This should not happen if main() sets the global pointer correctly.
         fprintf(stderr, "Internal error: callback options pointer is NULL.\n");
-        return -1; // Stop walk
+        return -1; // Stop the walk.
     }
 
-    // Always ignore these nftw flags for matching find's output behavior
+    // Ignore entries where stat failed or representing directory visit after children.
     if (typeflag == FTW_NS || typeflag == FTW_DP) {
-        return 0; // Continue walk, but don't process this entry
+        return 0; // Continue walk, skip processing this entry.
     }
-    // Double check sb isn't NULL if typeflag wasn't FTW_NS, though nftw docs
-    // suggest sb is valid for all flags we care about here if FTW_NS didn't occur.
-    // Using sb is only strictly needed for the S_ISREG check when -f is active.
 
     bool match = false;
 
-    // --- Determine if the entry should be listed ---
+    // Determine if the current entry matches the specified filter options.
     if (!opts->filter_active) {
-        // No specific filters (-l, -d, -f) were given. List *everything*
-        // encountered by nftw (that isn't FTW_NS or FTW_DP). This includes
-        // regular files, dirs, links, sockets, FIFOs, devices, etc.
-        // FTW_DNR (unreadable dirs) are included here implicitly.
+        // If no filters (-l, -d, -f) are active, list everything encountered.
         match = true;
     } else {
-        // Specific filters *are* active. Apply the filtering logic.
-        // Symbolic Link: Can be FTW_SL (points somewhere) or FTW_SLN (dangling link)
+        // Apply active filters.
+        // Check for symbolic links (includes regular and dangling links).
         if (opts->show_links && (typeflag == FTW_SL || typeflag == FTW_SLN)) {
             match = true;
         }
-        // Directory: Can be FTW_D (visiting before contents) or FTW_DNR (cannot read contents)
+        // Check for directories (includes readable and unreadable directories).
         else if (opts->show_dirs && (typeflag == FTW_D || typeflag == FTW_DNR)) {
             match = true;
         }
-        // File: Must be a *regular* file. Use S_ISREG. sb must be valid here.
-        // The check typeflag == FTW_F ensures it's some kind of file/device stat succeeded on.
+        // Check specifically for *regular* files using stat info.
         else if (opts->show_files && typeflag == FTW_F) {
-            // Only perform the S_ISREG check if sb is actually available.
-            // While FTW_NS should catch most stat failures, defensive check doesn't hurt,
-            // although standard nftw guarantees sb for FTW_F.
+            // Ensure sb is valid and check if it's a regular file.
             if (sb != NULL && S_ISREG(sb->st_mode)) {
                 match = true;
             }
-            // If sb were somehow NULL here despite typeflag==FTW_F, it wouldn't match.
         }
-        // Other types (sockets, fifos, devices etc.) are implicitly ignored
-        // by these specific checks when a filter IS active.
+        // Other types (sockets, fifos, devices) are implicitly ignored when filters are active.
     }
 
-    // --- Process the matched entry ---
+    // Process the entry if it matched the criteria.
     if (match) {
         if (opts->sort_output) {
-            // Add path to the list for later sorting
-            if (opts->list == NULL) { // Safety check
+            // Add the path to the list for later sorting.
+            if (opts->list == NULL) { // Safety check.
                 fprintf(stderr, "Internal error: sort list pointer is NULL in callback.\n");
-                return -1; // Stop walk
+                return -1; // Stop walk.
             }
             if (add_path_to_list(opts->list, fpath) != 0) {
-                // Error message printed inside add_path_to_list
-                return -1; // Stop the walk due to allocation error
+                // Error message already printed by add_path_to_list.
+                return -1; // Stop walk due to allocation error.
             }
         } else {
-            // Print path directly to standard output
+            // Print the path directly to standard output.
             if (printf("%s\n", fpath) < 0) {
                 if (errno == EPIPE) {
-                    // Handle broken pipe silently or just stop
-                    return -1; // Stop walk silently on EPIPE
+                    // Stop silently if writing to a broken pipe.
+                    return -1;
                 } else {
                     perror("Error writing to stdout");
+                    return -1; // Stop on other write errors.
                 }
-                // Stop walk on any other stdout error.
-                return -1;
             }
         }
     }
 
-    // Return 0 to tell nftw to continue the walk.
+    // Continue the directory traversal.
     return 0;
 }
 
-/**
- * @brief Adds a copy of a path string to the dynamic path list.
- *
- * Resizes the list's internal buffer using realloc if necessary. Handles memory
- * allocation errors robustly.
- *
- * @param list Pointer to the path_list_s structure. Must be non-NULL and initialized.
- * @param path The path string to add. A copy will be made using strdup.
- * @return 0 on success, -1 on memory allocation failure.
+/*
+ * Purpose:
+ *   Appends a copy of the provided path string to the dynamic path list.
+ *   If the list's capacity is reached, it attempts to resize the internal
+ *   buffer (usually by doubling its size) using realloc(). It handles memory
+ *   allocation for the new path copy using strdup().
+ * Receives:
+ *   list: A pointer to the path_list_s structure managing the list. Must be
+ *         a valid, initialized pointer.
+ *   path: The null-terminated string representing the path to add. A duplicate
+ *         of this string will be stored.
+ * Returns:
+ *   0 on success.
+ *   -1 if a memory allocation error occurs (either during list resizing with
+ *      realloc() or during path duplication with strdup()). An error message
+ *      is printed to stderr on failure.
  */
 static int add_path_to_list(path_list_s *list, const char *path) {
-    // Basic sanity check
     if (list == NULL) {
         fprintf(stderr, "Internal error: add_path_to_list called with NULL list.\n");
         return -1;
     }
 
-    // Check if capacity needs to be increased
+    // Check if the list needs to grow.
     if (list->count >= list->capacity) {
-        // Double the capacity, or start with a base capacity if it's 0.
         size_t new_capacity = (list->capacity == 0) ? 100 : list->capacity * 2;
-        // Check for potential integer overflow if capacity becomes extremely large
+        // Basic overflow check for capacity.
         if (new_capacity <= list->capacity && list->capacity > 0) {
             fprintf(stderr, "Error: Path list capacity overflow during resize.\n");
-            return -1; // Indicate error
+            return -1;
         }
-        // Attempt to reallocate. realloc(NULL, size) is equivalent to malloc(size).
         char **new_paths = realloc(list->paths, new_capacity * sizeof(char *));
         if (new_paths == NULL) {
             perror("Error reallocating path list buffer");
-            // The original list->paths is still valid if realloc fails. The walk should stop.
-            return -1; // Indicate error
+            return -1; // The original list->paths remains valid, but we signal failure.
         }
         list->paths = new_paths;
         list->capacity = new_capacity;
     }
 
-    // Duplicate the path string using strdup (allocates memory for the copy)
+    // Duplicate the path string and store the pointer in the list.
     list->paths[list->count] = strdup(path);
     if (list->paths[list->count] == NULL) {
         perror("Error duplicating path string (strdup failed)");
-        // If strdup fails, the list count hasn't been incremented yet.
-        // The walk should stop. Any previously added paths will be freed later.
-        return -1; // Indicate error
+        return -1; // Signal failure.
     }
 
-    // Increment count only after successful allocation and copy
+    // Increment the count only after successful allocation and copy.
     list->count++;
-    return 0; // Indicate success
+    return 0; // Success.
 }
 
 
-/**
- * @brief Frees all memory associated with a path list.
- *
- * Frees each individual path string allocated by strdup and then frees the
- * array holding the pointers. Resets the list structure members to safe values.
- *
- * @param list Pointer to the path_list_s structure to free. Handles NULL input safely.
+/*
+ * Purpose:
+ *   Releases all memory dynamically allocated for the path list. This includes
+ *   freeing each individual path string (allocated by strdup) and then freeing
+ *   the array that holds the pointers to these strings. It also resets the
+ *   list's count and capacity members to zero.
+ * Receives:
+ *   list: A pointer to the path_list_s structure whose memory should be freed.
+ *         It is safe to pass NULL or a pointer to a list that hasn't had
+ *         memory allocated yet (paths == NULL).
+ * Returns:
+ *   None (void).
  */
 static void free_path_list(path_list_s *list) {
     if (list == NULL || list->paths == NULL) {
-        // Nothing to free if list or paths array is NULL
+        // Nothing allocated to free.
         return;
     }
-    // Free each individual path string that was strdup'd
+    // Free each duplicated path string.
     for (size_t i = 0; i < list->count; ++i) {
         free(list->paths[i]);
-        // Setting to NULL after free isn't strictly necessary here as the whole
-        // array is freed next, but can be good practice in other contexts.
-        // list->paths[i] = NULL;
     }
-    // Free the array of pointers itself
+    // Free the array holding the pointers.
     free(list->paths);
 
-    // Reset the struct members to prevent dangling pointers or incorrect state
+    // Reset members to prevent use after free.
     list->paths = NULL;
     list->count = 0;
     list->capacity = 0;
 }
 
-/**
- * @brief Comparison function for qsort, using locale-aware string comparison.
- *
- * Used to sort path strings according to the current LC_COLLATE setting,
- * ensuring correct alphabetical order for the user's locale.
- *
- * @param a Pointer to the first element being compared (const void * -> const char **).
- * @param b Pointer to the second element being compared (const void * -> const char **).
- * @return An integer less than, equal to, or greater than zero if the string pointed
- *         to by 'a' is found, respectively, to be less than, to match, or be
- *         greater than the string pointed to by 'b' according to strcoll.
+/*
+ * Purpose:
+ *   Comparison function designed for use with qsort() to sort an array of
+ *   path strings (char *). It uses strcoll() for locale-aware string
+ *   comparison, ensuring that sorting respects the rules defined by the
+ *   current LC_COLLATE environment setting.
+ * Receives:
+ *   a: A const void pointer to the first element being compared. In the context
+ *      of sorting char **, this points to a (char *).
+ *   b: A const void pointer to the second element being compared. In the context
+ *      of sorting char **, this points to a (char *).
+ * Returns:
+ *   An integer less than, equal to, or greater than zero if the string referenced
+ *   by 'a' is lexicographically less than, equal to, or greater than the string
+ *   referenced by 'b', according to strcoll().
  */
 static int compare_paths(const void *a, const void *b) {
-    // qsort passes pointers to the elements being sorted.
-    // Since we are sorting an array of (char *), a and b are (const char **).
+    // Cast the void pointers to pointers to character pointers (const char **).
     const char **path_a_ptr = (const char **)a;
     const char **path_b_ptr = (const char **)b;
 
-    // Dereference the pointers to get the actual (const char *) strings
-    // Use strcoll for locale-sensitive comparison.
+    // Dereference the pointers to get the actual C strings (const char *)
+    // and compare them using locale-sensitive strcoll.
     return strcoll(*path_a_ptr, *path_b_ptr);
 }
 
 
-/**
- * @brief Prints usage instructions for the program to standard error.
- *
- * Includes the program name, expected arguments, and available options.
- *
- * @param prog_name The name of the program executable (typically argv[0]).
+/*
+ * Purpose:
+ *   Prints usage instructions for the program to the standard error stream (stderr).
+ *   It displays the basic command syntax and lists the available command-line options
+ *   with brief explanations.
+ * Receives:
+ *   prog_name: The name of the executable, typically obtained from argv[0].
+ * Returns:
+ *   None (void).
  */
 static void print_usage(const char *prog_name) {
-    // Use fprintf to stderr for usage and error messages, as is conventional.
     fprintf(stderr, "Usage: %s [directory] [options]\n", prog_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  [directory]  Starting directory path (default: current directory './')\n");
