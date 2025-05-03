@@ -54,3 +54,5 @@ Makefile.in
 Makefile.am
 config.h
 
+# Ignore documents
+.pdf
